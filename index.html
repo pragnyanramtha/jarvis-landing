@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JARVIS — talk to your codebase</title>
+<meta name="description" content="JARVIS is a voice-driven coding agent that lives in your terminal. Say the change, watch it happen." />
+<meta name="theme-color" content="#F2EFE8" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+/* ============================================================
+   TOKENS
+   ============================================================ */
+:root {
+  --ground:      #F2EFE8;
+  --ground-sunk: #E8E4DA;
+  --surface:     #FAF8F3;
+  --ink:         #14120F;
+  --ink-2:       #4A463F;   /* 7.4:1 on ground */
+  --ink-3:       #6E6960;   /* 5.1:1 on ground — small text only */
+  --line:        #D6D1C5;
+  --line-strong: #14120F;
+
+  --accent:      #C4360C;   /* 4.7:1 on ground */
+  --accent-lit:  #FF6A33;
+  --accent-wash: #F6E7DF;
+
+  --panel:       #14120F;   /* inverted figure */
+  --panel-ink:   #EDE9E0;   /* 14.7:1 on panel */
+  --panel-2:     #211E19;
+  --ok:          #7BE38B;
+  --warn:        #FFC773;
+
+  --font-display: 'Archivo', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, 'Cascadia Mono', Consolas, monospace;
+
+  --step--1: clamp(0.78rem, 0.76rem + 0.1vw, 0.83rem);
+  --step-0:  clamp(1rem, 0.97rem + 0.16vw, 1.09rem);
+  --step-1:  clamp(1.2rem, 1.12rem + 0.4vw, 1.45rem);
+  --step-2:  clamp(1.5rem, 1.32rem + 0.9vw, 2.1rem);
+  --step-4:  clamp(2.6rem, 1.6rem + 5vw, 5.6rem);
+  --step-6:  clamp(3.1rem, 1.2rem + 10vw, 9.5rem);
+
+  --gutter: clamp(1.25rem, 4vw, 3.5rem);
+  --band:   clamp(4.5rem, 10vw, 9rem);
+  --measure: 62ch;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-io:  cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 120ms;
+  --t-base: 260ms;
+  --t-slow: 720ms;
+
+  --maxw: 1240px;
+}
+
+[data-theme="dark"] {
+  --ground:      #0E0D0B;
+  --ground-sunk: #171512;
+  --surface:     #171512;
+  --ink:         #EDE9E0;
+  --ink-2:       #A8A296;
+  --ink-3:       #857F73;
+  --line:        #2C2924;
+  --line-strong: #EDE9E0;
+  --accent:      #FF6A33;   /* 6.7:1 on ground */
+  --accent-wash: #2A160C;
+  --panel:       #F2EFE8;
+  --panel-ink:   #14120F;
+  --panel-2:     #E4E0D6;
+  --ok:          #16794A;
+  --warn:        #8A5B00;
+}
+
+/* ============================================================
+   RESET / BASE
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  scroll-padding-top: 5.5rem;
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: var(--step-0);
+  line-height: 1.55;
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  transition: background var(--t-base) var(--ease-io), color var(--t-base) var(--ease-io);
+}
+
+/* Paper grain — subtle, avoids flat "AI gradient" flatness */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+}
+[data-theme="dark"] body::before { opacity: 0.7; }
+
+img, svg { display: block; max-width: 100%; }
+button, input { font: inherit; color: inherit; }
+
+a { color: inherit; }
+
+:where(a, button, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 1px;
+}
+
+::selection { background: var(--accent); color: #fff; }
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+.wrap {
+  width: 100%;
+  max-width: var(--maxw);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+  position: relative;
+  z-index: 1;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.muted { color: var(--ink-2); }
+.dim   { color: var(--ink-3); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+.skip {
+  position: absolute; top: 0; left: 0; z-index: 100;
+  transform: translateY(-120%);
+  background: var(--ink); color: var(--ground);
+  padding: 0.9rem 1.4rem;
+  font-family: var(--font-mono); font-size: var(--step--1);
+  text-decoration: none; text-transform: uppercase; letter-spacing: 0.08em;
+}
+.skip:focus { transform: translateY(0); }
+
+section { position: relative; }
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.hdr {
+  position: sticky; top: 0; z-index: 40;
+  background: color-mix(in srgb, var(--ground) 86%, transparent);
+  backdrop-filter: blur(14px) saturate(1.3);
+  border-bottom: 1px solid var(--line);
+}
+.hdr__in {
+  display: flex; align-items: center; gap: 1.5rem;
+  min-height: 68px;
+}
+
+.brand {
+  display: flex; align-items: center; gap: 0.7rem;
+  text-decoration: none; margin-right: auto;
+}
+.brand__mark { width: 26px; height: 26px; flex: none; }
+.brand__name {
+  font-weight: 800; letter-spacing: -0.02em;
+  font-size: 1.05rem;
+}
+.brand__name span { color: var(--accent); }
+
+.nav { display: flex; gap: clamp(1rem, 2.2vw, 2rem); }
+.nav a {
+  text-decoration: none; color: var(--ink-2);
+  font-size: 0.95rem; font-weight: 500;
+  padding: 0.5rem 0;
+  border-bottom: 2px solid transparent;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.nav a:hover { color: var(--ink); border-bottom-color: var(--accent); }
+
+.hdr__act { display: flex; align-items: center; gap: 0.6rem; }
+
+/* ============================================================
+   BUTTONS  (Fitts: primary 48px, min 44px touch)
+   ============================================================ */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.6rem;
+  min-height: 48px; padding: 0 1.6rem;
+  border: 1px solid var(--line-strong);
+  background: transparent; color: var(--ink);
+  font-weight: 600; font-size: 0.95rem; letter-spacing: -0.005em;
+  text-decoration: none; cursor: pointer;
+  border-radius: 2px;
+  transition: transform var(--t-fast) var(--ease-out),
+              background var(--t-fast), color var(--t-fast),
+              box-shadow var(--t-fast);
+}
+.btn:hover { transform: translateY(-2px); }
+.btn:active { transform: translateY(0) scale(0.985); }
+
+.btn--primary {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+  box-shadow: 0 1px 0 var(--accent);
+}
+.btn--primary:hover {
+  background: color-mix(in srgb, var(--accent) 86%, #000);
+  box-shadow: 0 6px 20px -8px var(--accent);
+}
+.btn--sm { min-height: 40px; padding: 0 1.1rem; font-size: 0.875rem; }
+
+.icon-btn {
+  width: 44px; height: 44px; flex: none;
+  display: grid; place-items: center;
+  border: 1px solid var(--line); background: transparent;
+  cursor: pointer; border-radius: 2px; color: var(--ink-2);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+}
+.icon-btn:hover { color: var(--ink); border-color: var(--line-strong); }
+.icon-btn svg { width: 18px; height: 18px; }
+[data-theme="dark"] .icon-btn .i-sun,
+[data-theme="light"] .icon-btn .i-moon { display: none; }
+
+/* ============================================================
+   HERO — massive display type, no split, no bento
+   ============================================================ */
+.hero { padding-block: clamp(3.5rem, 8vw, 7rem) clamp(3rem, 6vw, 5rem); }
+
+.hero__eyebrow {
+  display: flex; align-items: center; gap: 0.75rem;
+  color: var(--ink-2); margin-bottom: clamp(1.5rem, 3vw, 2.5rem);
+  flex-wrap: wrap;
+}
+.hero__eyebrow .dot {
+  width: 7px; height: 7px; background: var(--accent);
+  border-radius: 50%; flex: none;
+  animation: pulse 2.4s var(--ease-io) infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.72); }
+}
+
+h1 {
+  font-size: var(--step-6);
+  line-height: 0.88;
+  letter-spacing: -0.045em;
+  font-weight: 800;
+  max-width: 15ch;
+  text-wrap: balance;
+}
+h1 em {
+  font-style: normal;
+  color: var(--accent);
+  /* hand-drawn underline for figure/ground emphasis */
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-repeat: no-repeat;
+  background-size: 0% 0.055em;
+  background-position: 0 88%;
+  transition: background-size 900ms var(--ease-out) 400ms;
+}
+h1 em.on { background-size: 100% 0.055em; }
+
+.hero__lede {
+  margin-top: clamp(1.75rem, 3vw, 2.5rem);
+  max-width: 54ch;
+  font-size: var(--step-1);
+  line-height: 1.5;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.hero__cta {
+  display: flex; flex-wrap: wrap; gap: 0.9rem;
+  margin-top: clamp(2rem, 4vw, 3rem);
+}
+
+.hero__meta {
+  display: flex; flex-wrap: wrap; gap: 0 clamp(1.5rem, 4vw, 3.5rem);
+  margin-top: clamp(2.5rem, 5vw, 4rem);
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+.hero__meta div { padding: 0.35rem 0; }
+.hero__meta dt { color: var(--ink-3); }
+.hero__meta dd {
+  margin: 0.2rem 0 0;
+  font-weight: 600; font-size: 0.98rem; letter-spacing: -0.01em;
+}
+
+/* ---- waveform: voice is the product ---- */
+.wave {
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 26px; width: 100%;
+}
+.wave span {
+  flex: 1;
+  background: var(--accent);
+  transform-origin: bottom;
+  animation: bar 1.15s var(--ease-io) infinite alternate;
+  border-radius: 0.5px;
+}
+@keyframes bar {
+  from { transform: scaleY(0.16); opacity: 0.5; }
+  to   { transform: scaleY(1);    opacity: 1; }
+}
+.wave--sm { height: 18px; gap: 2px; }
+
+/* ============================================================
+   BAND / SECTION FURNITURE
+   ============================================================ */
+.band { padding-block: var(--band); }
+.band--sunk { background: var(--ground-sunk); border-block: 1px solid var(--line); }
+
+.sec__head { margin-bottom: clamp(2.5rem, 5vw, 4rem); }
+.sec__num { color: var(--accent); display: block; margin-bottom: 1rem; }
+
+h2 {
+  font-size: var(--step-4);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  font-weight: 800;
+  max-width: 18ch;
+  text-wrap: balance;
+}
+.sec__lede {
+  margin-top: 1.25rem; max-width: var(--measure);
+  font-size: var(--step-1); color: var(--ink-2); line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/* ============================================================
+   TERMINAL — the product, inverted for figure/ground
+   ============================================================ */
+.term-shell {
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px -32px rgba(0,0,0,0.45);
+}
+.term-bar {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.7rem 1rem;
+  background: var(--panel-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--panel-ink) 16%, transparent);
+}
+.term-bar__dots { display: flex; gap: 6px; }
+.term-bar__dots i {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: color-mix(in srgb, var(--panel-ink) 26%, transparent);
+}
+.term-bar__t {
+  font-family: var(--font-mono); font-size: var(--step--1);
+  color: var(--panel-ink); opacity: 0.62; letter-spacing: 0.04em;
+}
+.term-bar__st {
+  margin-left: auto; display: flex; align-items: center; gap: 0.45rem;
+  font-family: var(--font-mono); font-size: var(--step--1);
+  color: var(--ok); letter-spacing: 0.04em;
+}
+.term-bar__st i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; animation: pulse 1.6s infinite;
+}
+
+.term-body {
+  background: var(--panel); color: var(--panel-ink);
+  padding: clamp(1.1rem, 2.5vw, 1.9rem);
+  font-family: var(--font-mono);
+  font-size: clamp(0.8rem, 0.74rem + 0.28vw, 0.94rem);
+  line-height: 1.75;
+  min-height: clamp(300px, 46vh, 430px);
+}
+.line { display: flex; gap: 0.7rem; }
+.line__who { flex: none; width: 3.2ch; opacity: 0.5; }
+.line__txt { white-space: pre-wrap; }
+.l-you   .line__txt { color: var(--panel-ink); }
+.l-you   .line__who { color: var(--accent-lit); opacity: 1; }
+[data-theme="dark"] .l-you .line__who { color: var(--accent); }
+.l-sys   .line__txt { opacity: 0.5; }
+.l-agent .line__txt { color: var(--ok); }
+.l-tool  .line__txt { color: var(--warn); }
+.l-tool  .line__txt b { color: var(--panel-ink); font-weight: 600; }
+
+.term-live {
+  display: inline-flex; align-items: flex-end; gap: 3px;
+  height: 1.1em; vertical-align: -0.18em;
+}
+.term-live i {
+  width: 3px; background: var(--accent-lit);
+  animation: bar 0.9s var(--ease-io) infinite alternate;
+}
+[data-theme="dark"] .term-live i { background: var(--accent); }
+.term-live i:nth-child(2) { animation-delay: 0.12s; }
+.term-live i:nth-child(3) { animation-delay: 0.24s; }
+
+.caret {
+  display: inline-block; width: 8px; height: 1.05em;
+  background: var(--ok); vertical-align: -0.16em;
+  animation: blink 1.05s steps(2, start) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.term-foot {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.85rem 1rem;
+  background: var(--panel-2);
+  border-top: 1px solid color-mix(in srgb, var(--panel-ink) 16%, transparent);
+  font-family: var(--font-mono); font-size: var(--step--1);
+  color: var(--panel-ink); opacity: 0.66; letter-spacing: 0.03em;
+  flex-wrap: wrap;
+}
+.term-foot .kbd {
+  border: 1px solid color-mix(in srgb, var(--panel-ink) 28%, transparent);
+  padding: 0.1rem 0.45rem; border-radius: 2px; font-size: 0.9em;
+}
+
+/* ============================================================
+   FLOW — Uniform Connectedness via a real connecting line
+   ============================================================ */
+.flow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--line-strong);
+}
+.flow__step {
+  position: relative;
+  padding: clamp(1.75rem, 3vw, 2.5rem) clamp(1rem, 2vw, 1.75rem) 0 0;
+}
+.flow__step + .flow__step { padding-left: clamp(1rem, 2vw, 1.75rem); border-left: 1px solid var(--line); }
+.flow__step::before {
+  content: '';
+  position: absolute; top: -1px; left: 0;
+  width: 40px; height: 2px; background: var(--accent);
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform 520ms var(--ease-out);
+}
+.flow__step.in::before { transform: scaleX(1); }
+.flow__step h3 {
+  font-size: var(--step-2); font-weight: 700;
+  letter-spacing: -0.03em; line-height: 1.1; margin: 0.75rem 0 0.6rem;
+}
+.flow__step p { color: var(--ink-2); font-size: 0.97rem; max-width: 30ch; }
+
+/* ============================================================
+   CAPABILITIES — indexed editorial list, not a bento grid
+   ============================================================ */
+.caps { border-top: 1px solid var(--line-strong); }
+.cap {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: clamp(1rem, 3vw, 3rem);
+  align-items: start;
+  padding-block: clamp(1.6rem, 3vw, 2.25rem);
+  border-bottom: 1px solid var(--line);
+  transition: background var(--t-fast);
+}
+.cap:hover { background: var(--surface); }
+.cap__i { color: var(--accent); padding-top: 0.35rem; }
+.cap h3 {
+  font-size: var(--step-2); font-weight: 700;
+  letter-spacing: -0.025em; line-height: 1.15;
+}
+.cap__sub { display: block; margin-top: 0.4rem; color: var(--ink-3); }
+.cap__d { color: var(--ink-2); font-size: 1rem; max-width: 46ch; }
+
+/* ============================================================
+   PRIVACY / TRUST
+   ============================================================ */
+.trust {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+  background: var(--line); border: 1px solid var(--line-strong);
+  border-radius: 3px; overflow: hidden;
+}
+.trust__c { background: var(--ground); padding: clamp(1.5rem, 3vw, 2.25rem); }
+.trust__c h3 {
+  font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em;
+  margin: 0.85rem 0 0.5rem;
+}
+.trust__c p { color: var(--ink-2); font-size: 0.96rem; max-width: 34ch; }
+.trust__c svg { width: 22px; height: 22px; color: var(--accent); }
+
+/* ============================================================
+   SIGNUP
+   ============================================================ */
+.signup { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2.25rem; }
+.signup__field { position: relative; flex: 1 1 300px; min-width: 0; }
+.signup input {
+  width: 100%; min-height: 48px;
+  padding: 0 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  color: var(--ink);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.signup input::placeholder { color: var(--ink-3); }
+.signup input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.signup input[aria-invalid="true"] { border-color: #B4231F; }
+[data-theme="dark"] .signup input[aria-invalid="true"] { border-color: var(--accent-lit); }
+
+.signup__msg { margin-top: 0.9rem; font-size: 0.92rem; min-height: 1.4em; }
+.signup__msg[data-tone="err"] { color: #B4231F; }
+[data-theme="dark"] .signup__msg[data-tone="err"] { color: var(--accent-lit); }
+.signup__msg[data-tone="ok"]  { color: var(--ok); }
+[data-theme="light"] .signup__msg[data-tone="ok"] { color: #16794A; }
+
+/* ============================================================
+   FINAL CTA
+   ============================================================ */
+.closer { text-align: center; }
+.closer h2 { max-width: 22ch; margin-inline: auto; }
+.closer .signup { justify-content: center; }
+.closer .signup__field { flex: 0 1 340px; }
+.closer .signup__msg { text-align: center; }
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.ftr { border-top: 1px solid var(--line-strong); padding-block: clamp(2.5rem, 5vw, 3.5rem); }
+.ftr__in {
+  display: flex; flex-wrap: wrap; gap: 1.5rem 2.5rem;
+  align-items: center; justify-content: space-between;
+}
+.ftr nav { display: flex; flex-wrap: wrap; gap: 1.5rem; }
+.ftr nav a {
+  color: var(--ink-2); text-decoration: none; font-size: 0.92rem;
+  border-bottom: 1px solid transparent; padding-bottom: 2px;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.ftr nav a:hover { color: var(--ink); border-bottom-color: var(--accent); }
+
+/* ============================================================
+   REVEAL
+   ============================================================ */
+.rv { opacity: 0; transform: translateY(22px); }
+.rv.in {
+  opacity: 1; transform: none;
+  transition: opacity var(--t-slow) var(--ease-out), transform var(--t-slow) var(--ease-out);
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 900px) {
+  .nav { display: none; }
+  .flow { grid-template-columns: 1fr 1fr; }
+  .flow__step { padding-right: 1rem; }
+  .flow__step:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .flow__step:nth-child(even) { border-left: 1px solid var(--line); }
+  .flow__step { border-top: 1px solid var(--line); padding-top: 2rem; }
+  .flow__step:nth-child(-n+2) { border-top: 0; padding-top: 1.75rem; }
+  .cap { grid-template-columns: 3.25rem minmax(0, 1fr); }
+  .cap__d { grid-column: 2; }
+  .trust { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .flow { grid-template-columns: 1fr; }
+  .flow__step { border-left: 0 !important; padding-left: 0; }
+  .hdr__act .btn span { display: none; }
+  .btn--sm { padding: 0 0.9rem; }
+}
+
+/* ============================================================
+   MOTION PREFERENCE
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .rv { opacity: 1; transform: none; }
+  .wave span, .term-live i { animation: none; transform: scaleY(0.55); }
+}
+
+/* ============================================================
+   PRINT
+   ============================================================ */
+@media print {
+  .hdr, .term-shell, body::before { display: none; }
+  body { background: #fff; color: #000; }
+}
+</style>
+</head>
+
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- ============================ HEADER ============================ -->
+<header class="hdr">
+  <div class="wrap hdr__in">
+    <a class="brand" href="#top" aria-label="JARVIS home">
+      <svg class="brand__mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="16" cy="16" r="15" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="16" cy="16" r="9.5" stroke="currentColor" stroke-width="1.5" opacity=".4"/>
+        <circle cx="16" cy="16" r="3.5" fill="var(--accent)"/>
+        <path d="M16 1v6M16 25v6M1 16h6M25 16h6" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      <span class="brand__name">JARVIS<span>.</span></span>
+    </a>
+
+    <nav class="nav" aria-label="Main">
+      <a href="#loop">How it works</a>
+      <a href="#capabilities">Capabilities</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#get">Early access</a>
+    </nav>
+
+    <div class="hdr__act">
+      <button class="icon-btn" id="theme" type="button" aria-pressed="false">
+        <span class="sr-only">Switch to dark theme</span>
+        <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>
+        </svg>
+        <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>
+        </svg>
+      </button>
+      <a class="btn btn--primary btn--sm" href="#get"><span>Get JARVIS</span></a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <span id="top"></span>
+
+  <!-- ============================ HERO ============================ -->
+  <section class="hero wrap">
+    <p class="hero__eyebrow mono">
+      <span class="dot" aria-hidden="true"></span>
+      Voice&#8209;driven coding agent · runs on your machine
+    </p>
+
+    <h1>Say the change. <em id="ul" class="on">Watch it land.</em></h1>
+
+    <p class="hero__lede">
+      JARVIS is a coding agent that listens. You talk about the work; it reads your
+      files, runs your commands, and answers out loud — inside the terminal you already
+      live in.
+    </p>
+
+    <div class="hero__cta">
+      <a class="btn btn--primary" href="#get">
+        Get early access
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+          <path d="M5 12h14M13 6l6 6-6 6"/>
+        </svg>
+      </a>
+      <a class="btn" href="#loop">See the loop</a>
+    </div>
+
+    <dl class="hero__meta">
+      <div>
+        <dt class="mono">Architecture</dt>
+        <dd>One agent, six tools</dd>
+      </div>
+      <div>
+        <dt class="mono">Network</dt>
+        <dd>127.0.0.1 only</dd>
+      </div>
+      <div>
+        <dt class="mono">Latency target</dt>
+        <dd>Under one second, voice to voice</dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ============================ TERMINAL ============================ -->
+  <section class="wrap" aria-labelledby="demo-h">
+    <h2 id="demo-h" class="sr-only">JARVIS in action</h2>
+
+    <div class="term-shell">
+      <div class="term-bar">
+        <div class="term-bar__dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        <span class="term-bar__t">jarvis — ~/dev/api-gateway</span>
+        <span class="term-bar__st"><i aria-hidden="true"></i>listening</span>
+      </div>
+
+      <!-- Visual, animated transcript. Hidden from AT; the static
+           transcript below is the accessible equivalent. -->
+      <div class="term-body" aria-hidden="true" id="tty"></div>
+
+      <!-- Screen-reader transcript: complete, static, never truncated -->
+      <div class="sr-only">
+        <p>Sample session transcript:</p>
+        <p>You said: Okay Jarvis, why is the health check timing out on staging?</p>
+        <p>JARVIS: Reading the route and the timeout config.</p>
+        <p>Tool call, read: src/routes/health.ts</p>
+        <p>Tool call, grep: timeout across 6 files</p>
+        <p>JARVIS: Found it. The timeout is set to 30 seconds on the route, but the upstream
+          health service closes at 10. Bumping the route to 45.</p>
+        <p>Tool call, edit: src/routes/health.ts</p>
+        <p>JARVIS: Done. Tests pass. Want me to open a pull request?</p>
+      </div>
+
+      <div class="term-foot">
+        <span><span class="kbd">Hey Jarvis</span> to wake</span>
+        <span><span class="kbd">⌘K</span> push-to-talk</span>
+        <span>hold <span class="kbd">Space</span> to interrupt</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ FLOW ============================ -->
+  <section class="band wrap" id="loop" aria-labelledby="loop-h">
+    <div class="sec__head">
+      <span class="sec__num mono">01 — The loop</span>
+      <h2 id="loop-h">Four steps, no tab to switch.</h2>
+      <p class="sec__lede">
+        No orchestrator layer, no five agents taking turns. One loop, fast enough that
+        talking feels faster than typing.
+      </p>
+    </div>
+
+    <div class="flow">
+      <article class="flow__step">
+        <span class="mono dim">01</span>
+        <h3>Wake</h3>
+        <p>Say “Hey Jarvis.” Detection runs on-device, so it works with the lid closed on your network.</p>
+      </article>
+      <article class="flow__step">
+        <span class="mono dim">02</span>
+        <h3>Listen</h3>
+        <p>Streaming speech-to-text starts the moment you do. You can talk over it and correct yourself.</p>
+      </article>
+      <article class="flow__step">
+        <span class="mono dim">03</span>
+        <h3>Act</h3>
+        <p>The agent reads, greps, writes, and runs commands against your real repo — fail-closed on anything destructive.</p>
+      </article>
+      <article class="flow__step">
+        <span class="mono dim">04</span>
+        <h3>Answer</h3>
+        <p>It speaks back what it did, in under a second, and waits for the next instruction.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============================ CAPABILITIES ============================ -->
+  <section class="band band--sunk" id="capabilities" aria-labelledby="cap-h">
+    <div class="wrap">
+      <div class="sec__head">
+        <span class="sec__num mono">02 — What it actually does</span>
+        <h2 id="cap-h">Boring tools. Serious memory.</h2>
+        <p class="sec__lede">
+          Six tools and two memory stores. Deliberately unglamorous — the value is in
+          the loop being reliable, not the feature list being long.
+        </p>
+      </div>
+
+      <div class="caps">
+        <article class="cap">
+          <span class="cap__i mono">01</span>
+          <h3>Terminal, not a chat window<span class="cap__sub mono">bash · read · write · grep · glob · git</span></h3>
+          <p class="cap__d">Your interactive shell and the agent's shell are separate surfaces. You keep your prompt; it gets its own sandboxed tool call.</p>
+        </article>
+
+        <article class="cap">
+          <span class="cap__i mono">02</span>
+          <h3>Memory you can read<span class="cap__sub mono">memory.md + sqlite</span></h3>
+          <p class="cap__d">A bounded Markdown file for what matters long-term, plus a searchable store of past episodes. Both are plain files on disk. No black box, nothing to export.</p>
+        </article>
+
+        <article class="cap">
+          <span class="cap__i mono">03</span>
+          <h3>Every session replayable<span class="cap__sub mono">structured json logs</span></h3>
+          <p class="cap__d">Each run writes a timeline, a transcript, and a metrics file. When the agent does something odd, you can read exactly what it saw.</p>
+        </article>
+
+        <article class="cap">
+          <span class="cap__i mono">04</span>
+          <h3>Skills it writes itself<span class="cap__sub mono">~/.jarvis/skills</span></h3>
+          <p class="cap__d">After it gets something right twice, it saves the procedure as a skill and searches for it next time. Versioned in a single index file.</p>
+        </article>
+
+        <article class="cap">
+          <span class="cap__i mono">05</span>
+          <h3>Graceful when keys are missing<span class="cap__sub mono">feature flags</span></h3>
+          <p class="cap__d">No API key means that capability turns off, not that the app breaks. Run the whole loop today with a deterministic stub model and zero secrets.</p>
+        </article>
+
+        <article class="cap">
+          <span class="cap__i mono">06</span>
+          <h3>Bring your own models<span class="cap__sub mono">openrouter · any model</span></h3>
+          <p class="cap__d">Point it at whichever model you already pay for. Swap the voice, the model, or both without touching the agent loop.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ PRIVACY ============================ -->
+  <section class="band wrap" id="privacy" aria-labelledby="priv-h">
+    <div class="sec__head">
+      <span class="sec__num mono">03 — Where your code goes</span>
+      <h2 id="priv-h">Nowhere it didn't have to.</h2>
+      <p class="sec__lede">
+        An agent with shell access deserves a straight answer, so here's the whole
+        architecture in three lines.
+      </p>
+    </div>
+
+    <div class="trust">
+      <div class="trust__c">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+          <rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <h3>Localhost only</h3>
+        <p>The sidecar binds to <code>127.0.0.1</code> and demands a handshake token before it accepts a single command.</p>
+      </div>
+      <div class="trust__c">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+          <path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/>
+        </svg>
+        <h3>Your keys, your machine</h3>
+        <p>Nothing is proxied through us. Voice, models, and transcripts stay on hardware you control.</p>
+      </div>
+      <div class="trust__c">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>
+        </svg>
+        <h3>Nothing hidden</h3>
+        <p>Full logs on disk, readable by you. If it's doing something you can't audit, you shouldn't run it.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ CLOSER ============================ -->
+  <section class="band band--sunk" id="get" aria-labelledby="get-h">
+    <div class="wrap closer">
+      <span class="sec__num mono">04 — Early access</span>
+      <h2 id="get-h">Ship the voice loop first.</h2>
+      <p class="sec__lede" style="margin-inline:auto">
+        Phase one is a single agent, one terminal, and one wake word. Join the list and
+        you'll get the build when it works.
+      </p>
+
+      <form class="signup" novalidate>
+        <div class="signup__field">
+          <label class="sr-only" for="email">Email address</label>
+          <input
+            id="email" name="email" type="email"
+            inputmode="email" autocomplete="email"
+            placeholder="you@company.com"
+            aria-describedby="signup-msg" />
+        </div>
+        <button class="btn btn--primary" type="submit">Notify me</button>
+        <p class="signup__msg" id="signup-msg" role="status" aria-live="polite" style="flex-basis:100%"></p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<!-- ============================ FOOTER ============================ -->
+<footer class="ftr">
+  <div class="wrap ftr__in">
+    <a class="brand" href="#top" aria-label="JARVIS home">
+      <svg class="brand__mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="16" cy="16" r="15" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="16" cy="16" r="3.5" fill="var(--accent)"/>
+      </svg>
+      <span class="brand__name">JARVIS<span>.</span></span>
+    </a>
+
+    <nav aria-label="Footer">
+      <a href="#loop">How it works</a>
+      <a href="#capabilities">Capabilities</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#get">Early access</a>
+    </nav>
+
+    <p class="mono dim">© 2026 JARVIS — built in public</p>
+  </div>
+</footer>
+
+<script>
+(() => {
+  'use strict';
+
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- theme ---------- */
+  const root = document.documentElement;
+  const btn = document.getElementById('theme');
+  const mq = matchMedia('(prefers-color-scheme: dark)');
+
+  const label = () => {
+    const dark = root.dataset.theme === 'dark';
+    btn.setAttribute('aria-pressed', String(dark));
+    btn.querySelector('.sr-only').textContent =
+      dark ? 'Switch to light theme' : 'Switch to dark theme';
+    document.querySelector('meta[name="theme-color"]')
+      .setAttribute('content', dark ? '#0E0D0B' : '#F2EFE8');
+  };
+
+  const saved = localStorage.getItem('jarvis-theme');
+  root.dataset.theme = saved || (mq.matches ? 'dark' : 'light');
+  label();
+
+  btn.addEventListener('click', () => {
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('jarvis-theme', root.dataset.theme);
+    label();
+  });
+
+  /* ---------- waveform bars (staggered, GPU-only) ---------- */
+  document.querySelectorAll('.wave').forEach(w => {
+    for (let i = 0; i < 34; i++) {
+      const b = document.createElement('span');
+      b.style.animationDelay = (-(i * 0.11) % 1.15).toFixed(2) + 's';
+      b.style.animationDuration = (0.75 + ((i * 7) % 11) / 22).toFixed(2) + 's';
+      w.appendChild(b);
+    }
+  });
+
+  /* ---------- scroll reveal ---------- */
+  const targets = document.querySelectorAll('.rv, .flow__step');
+  if (reduced || !('IntersectionObserver' in window)) {
+    targets.forEach(t => t.classList.add('in'));
+  } else {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e, i) => {
+        if (!e.isIntersecting) return;
+        setTimeout(() => e.target.classList.add('in'), i * 90);
+        io.unobserve(e.target);
+      });
+    }, { threshold: 0.25, rootMargin: '0px 0px -8% 0px' });
+    targets.forEach(t => io.observe(t));
+  }
+
+  /* ---------- terminal playback ---------- */
+  const SCRIPT = [
+    { w: 'you',   t: 'Okay Jarvis, why is the health check timing out on staging?' },
+    { w: 'sys',   t: 'wake word · 0.04s · vad open' },
+    { w: 'agent', t: 'Reading the route and the timeout config.' },
+    { w: 'tool',  t: '<b>read</b>  src/routes/health.ts' },
+    { w: 'tool',  t: '<b>grep</b> "timeout"  →  6 matches' },
+    { w: 'agent', t: 'Found it. The route allows 30s, but the upstream\nhealth service closes at 10. Bumping the route to 45.' },
+    { w: 'tool',  t: '<b>edit</b>  src/routes/health.ts' },
+    { w: 'agent', t: 'Done — 6 tests pass. Open a pull request?' },
+    { w: 'live',  t: '' }
+  ];
+
+  const tty = document.getElementById('tty');
+
+  const renderLine = (cls, html) => {
+    const d = document.createElement('div');
+    d.className = 'line l-' + cls;
+    const who = document.createElement('span');
+    who.className = 'line__who';
+    who.textContent = cls === 'you' ? '❯' : cls === 'sys' ? '·' : '›';
+    const txt = document.createElement('span');
+    txt.className = 'line__txt';
+    txt.innerHTML = html;
+    d.append(who, txt);
+    tty.appendChild(d);
+    return d;
+  };
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  async function play() {
+    const caret = document.createElement('span');
+    caret.className = 'caret';
+
+    for (const step of SCRIPT) {
+      if (step.w === 'live') {
+        const box = document.createElement('span');
+        box.className = 'term-live';
+        for (let i = 0; i < 3; i++) box.appendChild(document.createElement('i'));
+        renderLine('agent', '').querySelector('.line__txt').append(box);
+        return;
+      }
+
+      const d = renderLine(step.w, '');
+      const txt = d.querySelector('.line__txt');
+
+      if (reduced) {
+        txt.innerHTML = step.t;
+        continue;
+      }
+
+      // Type plain text, then swap in the markup verbatim.
+      const plain = step.t.replace(/<\/?b>/g, '');
+      txt.appendChild(caret);
+      for (const ch of plain) {
+        txt.insertBefore(document.createTextNode(ch), caret);
+        await sleep(ch === '\n' ? 90 : 13);
+      }
+      txt.innerHTML = step.t + '<span class="caret"></span>';
+      await sleep(step.w === 'tool' ? 260 : 620);
+    }
+  }
+
+  if ('IntersectionObserver' in window) {
+    const start = new IntersectionObserver((entries, obs) => {
+      if (!entries.some(e => e.isIntersecting)) return;
+      obs.disconnect();
+      play();
+    }, { threshold: 0.3 });
+    start.observe(tty);
+  } else {
+    play();
+  }
+
+  /* ---------- signup: immediate feedback ---------- */
+  const form = document.querySelector('.signup');
+  const input = document.getElementById('email');
+  const msg = document.getElementById('signup-msg');
+
+  const say = (text, tone) => {
+    msg.textContent = text;
+    msg.dataset.tone = tone;
+  };
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const val = input.value.trim();
+
+    if (!val) {
+      input.setAttribute('aria-invalid', 'true');
+      say('Enter an email address so we know where to send it.', 'err');
+      input.focus();
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val)) {
+      input.setAttribute('aria-invalid', 'true');
+      say(`“${val}” doesn't look like an email — check for a typo.`, 'err');
+      input.focus();
+      return;
+    }
+
+    input.removeAttribute('aria-invalid');
+    say('You’re on the list. We’ll email you when the build works.', 'ok');
+    form.reset();
+  });
+
+  input.addEventListener('input', () => {
+    if (input.getAttribute('aria-invalid') === 'true') {
+      input.removeAttribute('aria-invalid');
+      say('');
+    }
+  });
+})();
+</script>
+</body>
+</html>
